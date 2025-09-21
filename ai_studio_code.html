@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Future Trading Signal Bot (Live Data)</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #121826;
+            color: #F2F2F2;
+        }
+        .container {
+            text-align: center;
+            padding: 40px;
+            border-radius: 10px;
+            background-color: #1A2031;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            width: 450px;
+        }
+        h1 {
+            margin-bottom: 20px;
+            color: #FFFFFF;
+        }
+        .asset-title {
+            font-size: 1.5em;
+            color: #8A93A7;
+            margin-bottom: 10px;
+        }
+        .price-display {
+            font-size: 3em;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .signal-display {
+            padding: 20px;
+            margin-top: 20px;
+            border-radius: 8px;
+            font-size: 2em;
+            font-weight: bold;
+            transition: background-color 0.3s ease;
+        }
+        .buy {
+            background-color: #28a745;
+            color: white;
+        }
+        .sell {
+            background-color: #dc3545;
+            color: white;
+        }
+        .hold {
+            background-color: #6c757d;
+            color: white;
+        }
+        .info {
+            margin-top: 30px;
+            font-size: 0.9em;
+            color: #8A93A7;
+        }
+        .status {
+            margin-top: 15px;
+            font-style: italic;
+            color: #ffc107;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Trading Signal</h1>
+    <div class="asset-title">Bitcoin (BTC/USD)</div>
+    <div id="price" class="price-display">$0.00</div>
+    <div id="signal" class="signal-display hold">HOLD</div>
+    <div class="info">
+        <p>Short MA: <span id="short-ma">0</span> | Long MA: <span id="long-ma">0</span></p>
+        <p>This bot uses a Moving Average Crossover strategy with live data.</p>
+        <p id="status">Fetching initial price data...</p>
+    </div>
+</div>
+
+<script>
+    // --- Configuration ---
+    const assetId = 'bitcoin'; // Asset to track (e.g., 'bitcoin', 'ethereum')
+    const apiUrl = `https://api.coincap.io/v2/assets/${assetId}`;
+    const shortTermPeriod = 10; // Period for the short-term Moving Average
+    const longTermPeriod = 30;  // Period for the long-term Moving Average
+    const updateInterval = 5000; // Update every 5 seconds to respect API limits
+
+    // --- State ---
+    let currentPrice = 0;
+    let priceHistory = [];
+    let shortTermMA = 0;
+    let longTermMA = 0;
+    let lastSignal = 'HOLD'; // Initial signal
+
+    // --- UI Elements ---
+    const priceElement = document.getElementById('price');
+    const signalElement = document.getElementById('signal');
+    const shortMaElement = document.getElementById('short-ma');
+    const longMaElement = document.getElementById('long-ma');
+    const statusElement = document.getElementById('status');
+
+    /**
+     * Fetches the latest price from the CoinCap API.
+     * This function replaces the previous data simulation.
+     */
+    async function fetchPrice() {
+        try {
+            const response = await fetch(apiUrl);
+            if (!response.ok) {
+                throw new Error(`Network response was not ok: ${response.statusText}`);
+            }
+            const data = await response.json();
+            currentPrice = parseFloat(data.data.priceUsd);
+            
+            priceHistory.push(currentPrice);
+
+            // Keep history at the length of the longest moving average period
+            if (priceHistory.length > longTermPeriod) {
+                priceHistory.shift();
+            }
+            statusElement.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+        } catch (error) {
+            console.error("Failed to fetch price:", error);
+            statusElement.textContent = "Error fetching price. Retrying...";
+        }
+    }
+
+    /**
+     * Calculates the moving averages based on the price history.
+     */
+    function calculateMovingAverages() {
+        if (priceHistory.length < longTermPeriod) {
+            return; // Not enough data yet
+        }
+
+        // Calculate short-term moving average
+        const shortTermSlice = priceHistory.slice(-shortTermPeriod);
+        const shortTermSum = shortTermSlice.reduce((sum, price) => sum + price, 0);
+        shortTermMA = shortTermSum / shortTermPeriod;
+
+        // Calculate long-term moving average
+        const longTermSum = priceHistory.reduce((sum, price) => sum + price, 0);
+        longTermMA = longTermSum / longTermPeriod;
+    }
+
+    /**
+     * Generates a trading signal based on the moving averages.
+     */
+    function generateSignal() {
+        let newSignal = lastSignal;
+        
+        // A "BUY" signal is generated if the short-term MA crosses above the long-term MA
+        if (shortTermMA > longTermMA && lastSignal !== 'BUY') {
+            newSignal = 'BUY';
+        } 
+        // A "SELL" signal is generated if the short-term MA crosses below the long-term MA
+        else if (shortTermMA < longTermMA && lastSignal !== 'SELL') {
+            newSignal = 'SELL';
+        }
+        
+        return newSignal;
+    }
+
+    /**
+     * Updates the user interface with the latest data.
+     */
+    function updateUI(signal) {
+        priceElement.textContent = `$${currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        shortMaElement.textContent = shortTermMA.toFixed(2);
+        longMaElement.textContent = longTermMA.toFixed(2);
+
+        if (signal !== signalElement.textContent) {
+            signalElement.textContent = signal;
+            signalElement.className = 'signal-display ' + signal.toLowerCase();
+        }
+    }
+
+    /**
+     * Main loop for the bot.
+     */
+    async function tick() {
+        await fetchPrice();
+        
+        if (priceHistory.length >= longTermPeriod) {
+            calculateMovingAverages();
+            const newSignal = generateSignal();
+            lastSignal = newSignal;
+            updateUI(newSignal);
+        } else {
+            statusElement.textContent = `Gathering data... ${priceHistory.length}/${longTermPeriod} points.`;
+            updateUI('HOLD');
+        }
+    }
+
+    /**
+     * Initializes the bot by gathering enough historical data to start.
+     */
+    async function initialize() {
+        console.log("Initializing bot, gathering initial data points...");
+        for (let i = 0; i < longTermPeriod; i++) {
+            await fetchPrice();
+            if (currentPrice > 0) { // Only update UI if fetch was successful
+                 updateUI('HOLD');
+            }
+            statusElement.textContent = `Gathering data... ${priceHistory.length}/${longTermPeriod} points.`;
+            // Add a small delay between initial fetches to be considerate to the API
+            if(i < longTermPeriod - 1) await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+        console.log("Initialization complete. Starting main loop.");
+        tick(); // Run first tick immediately
+        setInterval(tick, updateInterval); // Then start the regular interval
+    }
+
+    // Start the bot's initialization process
+    initialize();
+
+</script>
+
+</body>
+</html>
